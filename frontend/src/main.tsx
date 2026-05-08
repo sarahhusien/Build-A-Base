@@ -13,7 +13,9 @@ import {
 } from "lucide-react";
 import "./styles.css";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.DEV ? "http://localhost:8000" : "/_/backend");
 
 type AnyRecord = Record<string, unknown>;
 
@@ -30,19 +32,34 @@ function App() {
   const [active, setActive] = useState("agent");
   const [result, setResult] = useState<AnyRecord | AgentResponse | null>(null);
   const [saved, setSaved] = useState<AnyRecord[]>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     fetchSaved().catch(() => undefined);
   }, []);
 
   async function api(path: string, body?: AnyRecord) {
-    const response = await fetch(`${API_BASE}${path}`, {
-      method: body ? "POST" : "GET",
-      headers: body ? { "Content-Type": "application/json" } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!response.ok) throw new Error(`Request failed: ${response.status}`);
-    return response.json();
+    setError("");
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}${path}`, {
+        method: body ? "POST" : "GET",
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Request failed: ${response.status}`);
+      }
+      return response.json();
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Something went wrong.";
+      setError(message);
+      throw caught;
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function fetchSaved() {
@@ -87,6 +104,7 @@ function App() {
               onClick={() => {
                 setActive(id);
                 setResult(null);
+                setError("");
               }}
               title={label}
             >
@@ -108,6 +126,8 @@ function App() {
         {active !== "saved" && result && (
           <ResultPanel result={result} onSave={() => saveCurrent(active)} />
         )}
+        {loading && <p className="status">Working on it...</p>}
+        {error && <p className="error">Could not reach the AI backend: {error}</p>}
       </section>
     </main>
   );
@@ -121,22 +141,26 @@ function AgentPanel({ run, setResult }: PanelProps) {
   const [preference, setPreference] = useState("natural finish");
 
   async function submit() {
-    setResult(
-      await run("/api/agent", {
-        goal,
-        text_input: text,
-        image: image || null,
-        profile: {
-          budget,
-          preference,
-          quiz_answers: {
-            after_washing: "tight cheeks, shiny T-zone",
-            midday: "oily t-zone",
+    try {
+      setResult(
+        await run("/api/agent", {
+          goal,
+          text_input: text,
+          image: image || null,
+          profile: {
+            budget,
+            preference,
+            quiz_answers: {
+              after_washing: "tight cheeks, shiny T-zone",
+              midday: "oily t-zone",
+            },
+            product_list: ["hydrating primer", "matte foundation", "setting powder"],
           },
-          product_list: ["hydrating primer", "matte foundation", "setting powder"],
-        },
-      }),
-    );
+        }),
+      );
+    } catch {
+      setResult(null);
+    }
   }
 
   return (
@@ -169,7 +193,13 @@ function FoundationPanel({ run, setResult }: PanelProps) {
         <label>Undertone<select value={undertone} onChange={(e) => setUndertone(e.target.value)}><option>cool</option><option>neutral</option><option>warm</option><option>olive</option></select></label>
         <label>Depth<select value={depth} onChange={(e) => setDepth(e.target.value)}><option>fair</option><option>light</option><option>medium</option><option>tan</option><option>deep</option><option>rich</option></select></label>
       </div>
-      <button className="primary" onClick={async () => setResult(await run("/api/foundation", { undertone, depth }))}>Match Shade</button>
+      <button className="primary" onClick={async () => {
+        try {
+          setResult(await run("/api/foundation", { undertone, depth }));
+        } catch {
+          setResult(null);
+        }
+      }}>Match Shade</button>
     </section>
   );
 }
@@ -182,7 +212,13 @@ function QuizPanel({ run, setResult }: PanelProps) {
       <PanelTitle icon={<ClipboardList />} title="Skin Type Quiz" />
       <label>After washing<input value={after} onChange={(e) => setAfter(e.target.value)} /></label>
       <label>Midday skin feel<input value={midday} onChange={(e) => setMidday(e.target.value)} /></label>
-      <button className="primary" onClick={async () => setResult(await run("/api/skin-type", { answers: { after_washing: after, midday } }))}>Infer Skin Type</button>
+      <button className="primary" onClick={async () => {
+        try {
+          setResult(await run("/api/skin-type", { answers: { after_washing: after, midday } }));
+        } catch {
+          setResult(null);
+        }
+      }}>Infer Skin Type</button>
     </section>
   );
 }
@@ -203,7 +239,13 @@ function RoutinePanel({ run, setResult }: PanelProps) {
         <label>Budget<input value={budget} onChange={(e) => setBudget(e.target.value)} /></label>
       </div>
       <label>Preference<input value={preference} onChange={(e) => setPreference(e.target.value)} /></label>
-      <button className="primary" onClick={async () => setResult(await run("/api/routine", { skin_type: skinType, undertone, depth, preference, budget }))}>Generate Routine</button>
+      <button className="primary" onClick={async () => {
+        try {
+          setResult(await run("/api/routine", { skin_type: skinType, undertone, depth, preference, budget }));
+        } catch {
+          setResult(null);
+        }
+      }}>Generate Routine</button>
     </section>
   );
 }
@@ -216,7 +258,13 @@ function ProblemPanel({ run, setResult }: PanelProps) {
       <PanelTitle icon={<Brush />} title="Makeup Problem Solver" />
       <label>Problem<textarea value={problem} onChange={(e) => setProblem(e.target.value)} /></label>
       <label>Products<input value={products} onChange={(e) => setProducts(e.target.value)} /></label>
-      <button className="primary" onClick={async () => setResult(await run("/api/problem-solver", { problem_text: problem, product_list: products.split(",").map((item) => item.trim()) }))}>Solve Problem</button>
+      <button className="primary" onClick={async () => {
+        try {
+          setResult(await run("/api/problem-solver", { problem_text: problem, product_list: products.split(",").map((item) => item.trim()) }));
+        } catch {
+          setResult(null);
+        }
+      }}>Solve Problem</button>
     </section>
   );
 }
@@ -229,7 +277,13 @@ function LookPanel({ run, setResult }: PanelProps) {
       <PanelTitle icon={<Image />} title="Makeup Look Recreator" />
       <label>Inspiration image URL or base64<input value={image} onChange={(e) => setImage(e.target.value)} /></label>
       <label>Style<input value={style} onChange={(e) => setStyle(e.target.value)} /></label>
-      <button className="primary" onClick={async () => setResult(await run("/api/look-recreator", { inspiration_image: image || null, user_profile: { style } }))}>Recreate Look</button>
+      <button className="primary" onClick={async () => {
+        try {
+          setResult(await run("/api/look-recreator", { inspiration_image: image || null, user_profile: { style } }));
+        } catch {
+          setResult(null);
+        }
+      }}>Recreate Look</button>
     </section>
   );
 }
