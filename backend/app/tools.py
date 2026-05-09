@@ -1,5 +1,7 @@
 from typing import Any
 
+from .product_catalog import recommend_products
+
 
 DEPTHS = ["fair", "light", "medium", "tan", "deep", "rich"]
 UNDERTONES = ["cool", "neutral", "warm", "olive"]
@@ -54,10 +56,18 @@ def match_foundation_tool(undertone: str, depth: str) -> dict[str, Any]:
         "undertone": undertone,
         "depth": depth,
         "matches": [
-            f"{family} flexible skin tint",
-            f"{family} buildable serum foundation",
-            f"{family} long-wear complexion stick",
+            f"{family} shade family",
+            f"{family} flexible tint family",
+            f"{family} longer-wear foundation family",
         ],
+        "product_recommendations": recommend_products(
+            category="foundation",
+            undertone=undertone,
+            depth=depth,
+            budget="moderate",
+            finish_preference=finish,
+            limit=3,
+        ),
         "application_tip": "Swatch along the jawline and check after 10 minutes in indirect daylight.",
         "finish": finish,
     }
@@ -99,6 +109,9 @@ def routine_generator_tool(
     skin_type = (skin_type or "balanced").lower()
     budget = budget or "moderate"
     preference = preference or "natural"
+    preference_text = preference.lower()
+    base_category = "skin tint" if any(word in preference_text for word in ["skin tint", "light coverage", "sheer", "dewy"]) else "foundation"
+    concealer_coverage = "full" if any(word in preference_text for word in ["full", "glam", "event", "long wear", "long-wear"]) else "medium"
 
     moisturizer = {
         "oily": "lightweight gel moisturizer",
@@ -106,6 +119,34 @@ def routine_generator_tool(
         "combination": "gel-cream moisturizer",
         "balanced": "simple lotion moisturizer",
     }.get(skin_type, "simple lotion moisturizer")
+
+    base_products = recommend_products(base_category, skin_type=skin_type, undertone=undertone, depth=depth, budget=budget, finish_preference=preference, limit=1)
+    concealer_products = [
+        product
+        for product in recommend_products("concealer", skin_type=skin_type, undertone=undertone, depth=depth, budget=budget, finish_preference=concealer_coverage, limit=4)
+        if product.get("coverage") == concealer_coverage
+    ] or recommend_products("concealer", skin_type=skin_type, undertone=undertone, depth=depth, budget=budget, limit=1)
+
+    contour_first = "liquid contour" if budget.lower() == "drugstore" else "cream contour"
+    contour_second = "cream contour" if contour_first == "liquid contour" else "liquid contour"
+
+    makeup_bag = {
+        "primer": _products_for_slot("primer", skin_type, undertone, depth, preference, budget, "", 1),
+        "base": _products_for_slot(base_category, skin_type, undertone, depth, preference, budget, "", 1, base_products),
+        "powder_blush": _products_for_slot("powder blush", skin_type, undertone, depth, preference, budget, "", 1),
+        "liquid_blush": _products_for_slot("liquid blush", skin_type, undertone, depth, preference, budget, "", 1),
+        "powder_contour_or_bronzer": _products_for_slot("powder bronzer", skin_type, undertone, depth, preference, budget, "", 1),
+        "cream_or_liquid_contour_bronzer": (
+            _products_for_slot(contour_first, skin_type, undertone, depth, preference, budget, "", 1)
+            or _products_for_slot(contour_second, skin_type, undertone, depth, preference, budget, "", 1)
+        ),
+        "concealer": _products_for_slot("concealer", skin_type, undertone, depth, preference, budget, concealer_coverage, 1, concealer_products[:1]),
+        "pressed_setting_powder": _products_for_slot("pressed setting powder", skin_type, undertone, depth, preference, budget, "", 1),
+        "loose_setting_powder": _products_for_slot("loose setting powder", skin_type, undertone, depth, preference, budget, "", 1),
+        "setting_sprays": _products_for_slot("setting spray", skin_type, undertone, depth, preference, budget, "", 2),
+    }
+    prep_products = recommend_products("moisturizer", skin_type=skin_type, budget=budget, limit=1) + recommend_products("sunscreen", skin_type=skin_type, budget=budget, limit=1)
+    product_recommendations = prep_products + [product for products in makeup_bag.values() for product in products]
 
     return {
         "morning": [
@@ -122,8 +163,34 @@ def routine_generator_tool(
             "Use exfoliating or retinoid-style cosmetics sparingly if already tolerated",
         ],
         "budget_tier": budget,
-        "shopping_priorities": ["SPF", "base shade match", "barrier-support moisturizer"],
+        "base_choice": base_category,
+        "concealer_coverage": concealer_coverage,
+        "shopping_priorities": ["SPF", "base formula fit", "barrier-support moisturizer"],
+        "makeup_bag": makeup_bag,
+        "product_recommendations": product_recommendations,
     }
+
+
+def _products_for_slot(
+    category: str,
+    skin_type: str,
+    undertone: str,
+    depth: str,
+    preference: str,
+    budget: str,
+    coverage: str,
+    limit: int,
+    fallback: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    return fallback or recommend_products(
+        category,
+        skin_type=skin_type,
+        undertone=undertone,
+        depth=depth,
+        budget=budget,
+        finish_preference=preference,
+        limit=limit,
+    )
 
 
 def makeup_problem_solver_tool(problem_text: str, product_list: list[str]) -> dict[str, Any]:
@@ -150,11 +217,19 @@ def makeup_problem_solver_tool(problem_text: str, product_list: list[str]) -> di
     if not fixes:
         fixes.append("Start with thinner layers, simplify skin prep, and test one product change at a time.")
 
+    product_recommendations = []
+    if _contains_any(text, ["cakey", "texture", "patchy"]):
+        product_recommendations.extend(recommend_products("primer", budget="drugstore", limit=2))
+        product_recommendations.extend(recommend_products("setting powder", budget="drugstore", limit=1))
+    if _contains_any(text, ["separate", "pilling", "balls up", "shiny", "oil"]):
+        product_recommendations.extend(recommend_products("setting powder", skin_type="oily", budget="moderate", limit=2))
+
     return {
         "problem": problem_text,
         "products_reviewed": product_list,
         "likely_cosmetic_causes": ["layering", "formula compatibility", "shade or finish mismatch"],
         "fixes": fixes,
+        "product_recommendations": product_recommendations[:4],
     }
 
 
@@ -173,6 +248,10 @@ def look_recreator_tool(inspiration_image: str | None, user_profile: dict[str, A
         ],
         "image_used": bool(inspiration_image),
         "adaptation_notes": "The look is adapted to the provided profile and cosmetic preferences.",
+        "product_recommendations": (
+            recommend_products("foundation", undertone=undertone, depth=depth, budget=user_profile.get("budget", "moderate"), limit=2)
+            + recommend_products("complexion booster", undertone=undertone, depth=depth, budget=user_profile.get("budget", "moderate"), limit=1)
+        ),
     }
 
 

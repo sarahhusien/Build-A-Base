@@ -1,11 +1,12 @@
-# ShadeSync
+# Build a Base
 
-ShadeSync is a React + Vite and FastAPI beauty assistant with an AI Beauty Agent, cosmetic recommendation tools, saved results, and a SQLite database.
+Build a Base is a React + Vite and FastAPI beauty assistant that helps users create cosmetic base routines with product compatibility checks, an AI Beauty Agent, saved routines, and a SQLite product database.
 
 ## Features
 
 - AI Beauty Agent at `/api/agent`
-- Foundation shade matcher
+- Live Google Shopping product search via SerpApi when `SERPAPI_API_KEY` is configured
+- Base routine builder
 - Skin type quiz
 - Routine generator
 - Makeup problem solver
@@ -25,6 +26,12 @@ cp .env.example .env
 
 ```bash
 OPENAI_API_KEY=sk-...
+```
+
+Optional, for live product cards with current-ish prices and thumbnails:
+
+```bash
+SERPAPI_API_KEY=your_serpapi_key
 ```
 
 3. Run with Docker:
@@ -66,7 +73,7 @@ Send a goal, text input, optional image as a base64 string or URL, and an option
 
 ```json
 {
-  "goal": "Find my foundation and build a routine",
+  "goal": "Build a base routine",
   "text_input": "I have a selfie, quiz answers, oily T-zone, and want budget products.",
   "image": "data:image/jpeg;base64,...",
   "profile": {
@@ -81,6 +88,14 @@ Send a goal, text input, optional image as a base64 string or URL, and an option
 
 The backend agent chooses tools, combines their outputs, and returns a structured response with recommendations, follow-up questions when required, and a cosmetic-only disclaimer.
 
+Product endpoints:
+
+- `GET /products` or `GET /api/products`
+- `GET /products/{id}` or `GET /api/products/{id}`
+- `POST /recommend` or `POST /api/recommend`
+
+`POST /recommend` compares the user's profile against products stored in SQLite. When `OPENAI_API_KEY` is configured, OpenAI chooses from the database candidates and explains the selections; otherwise Build a Base uses a deterministic score.
+
 ## Safety
 
-ShadeSync provides cosmetic and beauty recommendations only. It does not diagnose, treat, or advise on medical skin conditions. Users should consult a licensed medical professional for symptoms such as pain, spreading rash, bleeding, infection, severe irritation, or persistent skin changes.
+Build a Base provides cosmetic and beauty recommendations only. It does not diagnose, treat, or advise on medical skin conditions. Users should consult a licensed medical professional for symptoms such as pain, spreading rash, bleeding, infection, severe irritation, or persistent skin changes.
